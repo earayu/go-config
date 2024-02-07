@@ -6,7 +6,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"google.golang.org/appengine/log"
 	"os"
 	"sync"
 )
@@ -14,16 +13,16 @@ import (
 type validationFunc func() error
 type descriptionFunc func() string
 type defaultValueFunc func() any
-type setValueFunc func(newValue any) error
+type dynamicReloadHookFunc func(configItem *ConfigItem, newValue any) error
 
 type ConfigItem struct {
 	key   string
 	value any
 
-	defaultValueFunc defaultValueFunc
-	validationFunc   validationFunc
-	descriptionFunc  descriptionFunc
-	setValueFunc     setValueFunc
+	defaultValueFunc      defaultValueFunc
+	validationFunc        validationFunc
+	descriptionFunc       descriptionFunc
+	dynamicReloadHookFunc dynamicReloadHookFunc
 
 	alias         map[string]bool
 	dynamicReload bool
@@ -45,12 +44,12 @@ type ConfigSet struct {
 	configItemMap map[string]*ConfigItem
 
 	vp *viper.Viper
-	Fs *pflag.FlagSet
+	fs *pflag.FlagSet
 
-	ConfigPath                 []string
-	ConfigType                 string
-	ConfigName                 string
-	ConfigFileNotFoundHandling string
+	configPath                 []string
+	configType                 string
+	configName                 string
+	configFileNotFoundHandling string
 }
 
 func NewConfigSet(
@@ -66,41 +65,50 @@ func NewConfigSet(
 		vp.AddConfigPath(p)
 	}
 
+	fs := pflag.NewFlagSet(name, pflag.ContinueOnError)
+
 	c := &ConfigSet{
 		name:                       name,
 		configItemMap:              make(map[string]*ConfigItem),
 		vp:                         vp,
-		ConfigFileNotFoundHandling: IGNORE,
+		fs:                         fs,
+		configFileNotFoundHandling: IGNORE,
 	}
 	return c, nil
 }
 
+func (c *ConfigSet) Register(item *ConfigItem) error {
+	//todo check
+	c.configItemMap[item.key] = item
+	return nil
+}
+
 func (c *ConfigSet) String() string {
-	return fmt.Sprintf("ConfigPath=%s, ConfigType=%s, ConfigName=%s, ConfigFileNotFoundHandling=%s",
-		c.ConfigPath, c.ConfigType, c.ConfigName, c.ConfigFileNotFoundHandling)
+	return fmt.Sprintf("configPath=%s, configType=%s, configName=%s, configFileNotFoundHandling=%s",
+		c.configPath, c.configType, c.configName, c.configFileNotFoundHandling)
 }
 
 func (c *ConfigSet) LoadAndWatchConfigFile() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.vp.SetConfigName(c.ConfigName)
-	c.vp.SetConfigType(c.ConfigType)
-	for _, p := range c.ConfigPath {
+	c.vp.SetConfigName(c.configName)
+	c.vp.SetConfigType(c.configType)
+	for _, p := range c.configPath {
 		c.vp.AddConfigPath(p)
 	}
 	err := c.vp.ReadInConfig()
 	if err != nil {
-		switch c.ConfigFileNotFoundHandling {
+		switch c.configFileNotFoundHandling {
 		case IGNORE:
-			log.Infof(c.ctx, "ViperConfig: %c", c)
-			log.Infof(c.ctx, "read config file error, err: %c", err)
+			//log.Infof(c.ctx, "ViperConfig: %c", c)
+			//log.Infof(c.ctx, "read config file error, err: %c", err)
 		case ERROR:
-			log.Errorf(c.ctx, "ViperConfig: %c", c)
-			log.Errorf(c.ctx, "read config file error, err: %c", err)
+			//log.Errorf(c.ctx, "ViperConfig: %c", c)
+			//log.Errorf(c.ctx, "read config file error, err: %c", err)
 		case EXIT:
-			log.Errorf(c.ctx, "ViperConfig: %c", c)
-			log.Errorf(c.ctx, "read config file error, err: %c", err)
+			//log.Errorf(c.ctx, "ViperConfig: %c", c)
+			//log.Errorf(c.ctx, "read config file error, err: %c", err)
 			os.Exit(2)
 		}
 	}
@@ -111,13 +119,19 @@ func (c *ConfigSet) LoadAndWatchConfigFile() {
 func (c *ConfigSet) loadConfigFileAtStartup() {
 	c.reloadMu.Lock()
 	defer c.reloadMu.Unlock()
+	for _, ci := range c.configItemMap {
+		ci.value = ci.defaultValueFunc()
+	}
 	for _, sectionAndKey := range c.vp.AllKeys() {
 		configItem, exists := getConfigItem(c, sectionAndKey)
 		if !exists {
 			continue
 		}
 		newValue := c.vp.GetString(sectionAndKey)
-		configItem.setValueFunc(newValue)
+		if configItem.dynamicReloadHookFunc != nil {
+			configItem.dynamicReloadHookFunc(configItem, newValue)
+		}
+		configItem.value = newValue
 	}
 }
 
@@ -130,7 +144,10 @@ func (c *ConfigSet) reloadConfigs() {
 			continue
 		}
 		newValue := c.vp.GetString(sectionAndKey)
-		configItem.setValueFunc(newValue)
+		if configItem.dynamicReloadHookFunc != nil {
+			configItem.dynamicReloadHookFunc(configItem, newValue)
+		}
+		configItem.value = newValue
 	}
 }
 
