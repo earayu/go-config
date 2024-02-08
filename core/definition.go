@@ -13,16 +13,18 @@ import (
 type validationFunc func() error
 type descriptionFunc func() string
 type defaultValueFunc func() any
+type generateValueFunc func(configItem *ConfigItem, newValue string) any
 type dynamicReloadHookFunc func(configItem *ConfigItem, newValue any) error
 
 type ConfigItem struct {
 	key   string
 	value any
 
-	defaultValueFunc      defaultValueFunc
-	validationFunc        validationFunc
-	descriptionFunc       descriptionFunc
-	dynamicReloadHookFunc dynamicReloadHookFunc
+	defaultValue      defaultValueFunc
+	generateValue     generateValueFunc
+	validation        validationFunc
+	description       descriptionFunc
+	dynamicReloadHook dynamicReloadHookFunc
 
 	alias         map[string]bool
 	dynamicReload bool
@@ -120,7 +122,7 @@ func (c *ConfigSet) loadConfigFileAtStartup() {
 	c.reloadMu.Lock()
 	defer c.reloadMu.Unlock()
 	for _, ci := range c.configItemMap {
-		ci.value = ci.defaultValueFunc()
+		ci.value = ci.defaultValue()
 	}
 	for _, sectionAndKey := range c.vp.AllKeys() {
 		configItem, exists := getConfigItem(c, sectionAndKey)
@@ -128,10 +130,10 @@ func (c *ConfigSet) loadConfigFileAtStartup() {
 			continue
 		}
 		newValue := c.vp.GetString(sectionAndKey)
-		if configItem.dynamicReloadHookFunc != nil {
-			configItem.dynamicReloadHookFunc(configItem, newValue)
+		if configItem.dynamicReloadHook != nil {
+			configItem.dynamicReloadHook(configItem, newValue)
 		}
-		configItem.value = newValue
+		configItem.value = configItem.generateValue(configItem, newValue)
 	}
 }
 
@@ -144,10 +146,10 @@ func (c *ConfigSet) reloadConfigs() {
 			continue
 		}
 		newValue := c.vp.GetString(sectionAndKey)
-		if configItem.dynamicReloadHookFunc != nil {
-			configItem.dynamicReloadHookFunc(configItem, newValue)
+		if configItem.dynamicReloadHook != nil {
+			configItem.dynamicReloadHook(configItem, newValue)
 		}
-		configItem.value = newValue
+		configItem.value = configItem.generateValue(configItem, newValue)
 	}
 }
 

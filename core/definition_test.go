@@ -11,12 +11,18 @@ func TestNewConfigSet(t *testing.T) {
 
 	c.Register(&ConfigItem{
 		key: "foo",
-		defaultValueFunc: func() any {
+		defaultValue: func() any {
 			return "bar"
+		},
+	})
+	c.Register(&ConfigItem{
+		key: "count",
+		defaultValue: func() any {
+			return 100
 		},
 	})
 	c.LoadAndWatchConfigFile()
 
 	ci := c.configItemMap["foo"]
-	assert.Equal(t, ci.value, "baz")
+	assert.Equal(t, ci.value, "bar")
 }
