@@ -17,8 +17,20 @@ func TestNewConfigSet(t *testing.T) {
 	})
 	c.Register(&ConfigItem{
 		key: "count",
+		validation: func(newValue string) error {
+			return nil
+		},
 		defaultValue: func() any {
 			return 100
+		},
+		generateValue: func(configItem *ConfigItem, newValue string) any {
+			return newValue
+		},
+		description: func() string {
+			return "desc"
+		},
+		dynamicReloadHook: func(configItem *ConfigItem, newValue any) error {
+			return nil
 		},
 	})
 	c.LoadAndWatchConfigFile()

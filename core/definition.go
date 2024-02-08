@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-type validationFunc func() error
+type validationFunc func(newValue string) error
 type descriptionFunc func() string
 type defaultValueFunc func() any
 type generateValueFunc func(configItem *ConfigItem, newValue string) any
@@ -28,6 +28,11 @@ type ConfigItem struct {
 
 	alias         map[string]bool
 	dynamicReload bool
+}
+
+func (c *ConfigItem) setValue(newValue string) {
+	//todo validation
+	c.value = c.generateValue(c, newValue)
 }
 
 const (
@@ -81,6 +86,11 @@ func NewConfigSet(
 
 func (c *ConfigSet) Register(item *ConfigItem) error {
 	//todo check
+	if item.generateValue == nil {
+		item.generateValue = func(configItem *ConfigItem, newValue string) any {
+			return newValue
+		}
+	}
 	c.configItemMap[item.key] = item
 	return nil
 }
@@ -133,7 +143,7 @@ func (c *ConfigSet) loadConfigFileAtStartup() {
 		if configItem.dynamicReloadHook != nil {
 			configItem.dynamicReloadHook(configItem, newValue)
 		}
-		configItem.value = configItem.generateValue(configItem, newValue)
+		configItem.setValue(newValue)
 	}
 }
 
@@ -149,7 +159,7 @@ func (c *ConfigSet) reloadConfigs() {
 		if configItem.dynamicReloadHook != nil {
 			configItem.dynamicReloadHook(configItem, newValue)
 		}
-		configItem.value = configItem.generateValue(configItem, newValue)
+		configItem.setValue(newValue)
 	}
 }
 
